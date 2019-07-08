@@ -1,0 +1,10 @@
+{
+  "plugins": [
+    "css-modules-transform",
+    "@babel/plugin-transform-runtime"
+  ],
+  "presets": [
+    "@babel/react",
+    "@babel/env"
+  ]
+}

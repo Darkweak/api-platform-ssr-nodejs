@@ -1,0 +1,138 @@
+version: '3.4'
+
+x-client-ssr-env:
+  &client-ssr-env
+  environment:
+    - REACT_APP_API_ENTRYPOINT=${HTTP_OR_SSL}cache.${DOMAIN_NAME}
+    - REACT_APP_NODE_API_ENTRYPOINT=http://api
+
+x-cache:
+  &cache
+  cache_from:
+    - ${CONTAINER_REGISTRY_BASE}/php
+    - ${CONTAINER_REGISTRY_BASE}/nginx
+    - ${CONTAINER_REGISTRY_BASE}/varnish
+
+x-network:
+  &network
+  networks:
+    - api_platform_ssr
+
+services:
+  php:
+    image: ${CONTAINER_REGISTRY_BASE}/php
+    build:
+      context: ./api
+      target: api_platform_php
+      <<: *cache
+    depends_on:
+      - db
+    environment:
+      - APP_ENV=${APP_ENV}
+      - DOMAIN=${DOMAIN_NAME}
+      - TRUSTED_HOSTS=^(${SUBDOMAINS_LIST}\.)?${DOMAIN_NAME}$$
+      - CORS_ALLOW_ORIGIN=^${HTTP_OR_SSL}(${SUBDOMAINS_LIST}.)?${DOMAIN_NAME}$$
+      - DATABASE_URL=postgres://${DB_USER}:${DB_PASS}@db/${DB_NAME}
+      - JWT_PASSPHRASE=${JWT_KEY}
+      - BASE_URL=${HTTP_OR_SSL}${DOMAIN_NAME}
+    volumes:
+      - ./api:/srv/api:rw,cached
+    <<: *network
+
+  api:
+    image: ${CONTAINER_REGISTRY_BASE}/nginx
+    build:
+      context: ./api
+      target: api_platform_nginx
+      <<: *cache
+    depends_on:
+      - php
+    volumes:
+      - ./api/public:/srv/api/public:ro
+    labels:
+      - traefik.frontend.rule=Host:api.${DOMAIN_NAME}
+    <<: *network
+
+  cache-proxy:
+    image: ${CONTAINER_REGISTRY_BASE}/varnish
+    build:
+      context: ./api
+      target: api_platform_varnish
+      <<: *cache
+    depends_on:
+      - api
+    volumes:
+      - ./api/docker/varnish/conf:/usr/local/etc/varnish:ro
+    tmpfs:
+      - /usr/local/var/varnish:exec
+    labels:
+      - traefik.frontend.rule=Host:cache.${DOMAIN_NAME}
+    <<: *network
+
+  db:
+    image: postgres:10-alpine
+    environment:
+      - POSTGRES_DB=${DB_NAME}
+      - POSTGRES_USER=${DB_USER}
+      - POSTGRES_PASSWORD=${DB_PASS}
+    volumes:
+      - db-data:/var/lib/postgresql/data:rw
+    <<: *network
+
+  client:
+    image: ${CONTAINER_REGISTRY_BASE}/client
+    build:
+      context: ./client
+      cache_from:
+        - ${CONTAINER_REGISTRY_BASE}/client
+    volumes:
+      - ./client:/usr/src/client:rw,cached
+      - /usr/src/client/node_modules
+    expose:
+      - 3000
+    labels:
+      - traefik.frontend.rule=Host:dev.${DOMAIN_NAME}
+      - traefik.port=3000
+    <<: *client-ssr-env
+    <<: *network
+
+  admin:
+    image: ${CONTAINER_REGISTRY_BASE}/admin
+    build:
+      context: ./admin
+      cache_from:
+        - ${CONTAINER_REGISTRY_BASE}/admin
+    volumes:
+      - ./admin:/usr/src/admin:rw,cached
+      - /usr/src/admin/node_modules
+    expose:
+      - 3000
+    labels:
+      - traefik.frontend.rule=Host:admin.${DOMAIN_NAME}
+      - traefik.port=3000
+    <<: *client-ssr-env
+    <<: *network
+
+  ssr:
+    build:
+      context: ./client
+      dockerfile: Dockerfile-ssr
+    volumes:
+      - ./client:/app:rw,cached
+      - ./client/node_modules:/app/node_modules
+    env_file:
+      - ./client/.env
+    expose:
+      - 3000
+    labels:
+      - traefik.frontend.rule=Host:${DOMAIN_NAME},www.${DOMAIN_NAME}
+      - traefik.port=3000
+    <<: *client-ssr-env
+    <<: *network
+
+volumes:
+  db-data: {}
+
+networks:
+  api_platform_ssr:
+    external: true
