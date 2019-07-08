@@ -26,6 +26,7 @@ export const render = (context, path, store) => {
     <meta name="theme-color" content="#000000">
     <link rel="manifest" href="%PUBLIC_URL%/manifest.json">
     <link rel="shortcut icon" href="%PUBLIC_URL%/favicon.ico">
+    <script src="/dist/bundle.js"></script>
     <title>Welcome to API Platform</title>
   </head>
   <body>
@@ -34,7 +35,6 @@ export const render = (context, path, store) => {
     </noscript>
     <div id="root">${content}</div>
     <script>window.INITIAL_STATE = ${JSON.stringify(store.getState())}</script>
-    <script src="/dist/bundle.js"></script>
   </body>
 </html>
   `;
